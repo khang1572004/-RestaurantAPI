@@ -9,6 +9,10 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// ✅ DEBUG: Check config được load
+var minHours = builder.Configuration.GetValue<int>("BookingSettings:MinAdvanceHours", 999);
+Console.WriteLine($"🔍 DEBUG: MinAdvanceHours from config = {minHours}");
+
 // ===== Database Context =====
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
@@ -35,11 +39,12 @@ builder.Services.AddControllers()
 // ===== CORS =====
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+    options.AddPolicy("AllowAllReactApp",
+        policy =>
+        {
+            policy.WithOrigins("http://localhost:5173")
+                .AllowAnyMethod()
+                .AllowAnyHeader();
     });
 });
 
@@ -175,7 +180,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
-app.UseCors("AllowAll");
+app.UseCors("AllowReactApp");
 
 app.UseAuthentication();
 app.UseAuthorization();

@@ -160,3 +160,4 @@ C:\Users\ADMIN\OneDrive\Desktop\TN\RestaurantAPI\obj\Debug\net9.0\refint\Restaur
 C:\Users\ADMIN\OneDrive\Desktop\TN\RestaurantAPI\obj\Debug\net9.0\RestaurantAPI.pdb
 C:\Users\ADMIN\OneDrive\Desktop\TN\RestaurantAPI\obj\Debug\net9.0\RestaurantAPI.genruntimeconfig.cache
 C:\Users\ADMIN\OneDrive\Desktop\TN\RestaurantAPI\obj\Debug\net9.0\ref\RestaurantAPI.dll
+C:\Users\ADMIN\OneDrive\Desktop\TN\RestaurantAPI\obj\Debug\net9.0\RestaurantAPI.sourcelink.json

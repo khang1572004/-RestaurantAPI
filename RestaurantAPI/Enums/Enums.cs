@@ -7,12 +7,13 @@ public enum UserRole
 
 public enum BookingStatus
 {
-    Pending = 1,     // Chờ xác nhận
-    Confirmed = 2,   // Đã xác nhận
-    CheckedIn = 3,   // Đã check-in
-    Completed = 4,   // Hoàn thành
-    Cancelled = 5,   // Đã hủy
-    NoShow = 6       // Không
+    Pending = 1,            // Chờ xác nhận
+    PendingApproval = 2,    // Party booking chờ duyệt
+    Confirmed = 3,          // Đã xác nhận 
+    CheckedIn = 4,          // Đã check-in 
+    Completed = 5,          // Hoàn thành 
+    Cancelled = 6,          // Đã hủy 
+    NoShow = 7              // Không đến 
 }
 
 public enum PaymentStatus

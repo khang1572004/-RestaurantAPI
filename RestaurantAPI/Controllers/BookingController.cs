@@ -37,7 +37,7 @@ public class BookingController : ControllerBase
     }
 
     /// <summary>
-    /// CN012: Xem danh sách bàn còn trống
+    /// ✅ UPDATED: CN012 - Xem danh sách bàn còn trống (with service duration)
     /// </summary>
     [HttpGet("availability")]
     [AllowAnonymous]
@@ -51,14 +51,26 @@ public class BookingController : ControllerBase
             ));
         }
 
+        // ✅ UPDATED: Pass service duration to availability check
         var tables = await _availabilityService.GetAvailableTablesAsync(
-            dto.BookingDate, dto.BookingTime, dto.NumGuests);
+            dto.BookingDate, 
+            dto.BookingTime, 
+            dto.NumGuests,
+            dto.ServiceDurationMinutes); // ✅ NEW
+
+        _logger.LogInformation(
+            "Availability check: {Date} {Time}, {Guests} guests, {Duration}m → {Count} tables",
+            dto.BookingDate.ToString("dd/MM/yyyy"),
+            dto.BookingTime,
+            dto.NumGuests,
+            dto.ServiceDurationMinutes,
+            tables.Count);
 
         return Ok(ApiResponse<List<AvailableTableDto>>.SuccessResponse(tables));
     }
 
     /// <summary>
-    /// CN010-CN019: Đặt bàn
+    /// ✅ UPDATED: CN010-CN019 - Đặt bàn (with service duration)
     /// </summary>
     [HttpPost("create")]
     public async Task<IActionResult> CreateBooking([FromBody] CreateBookingDto dto)
@@ -71,12 +83,28 @@ public class BookingController : ControllerBase
             ));
         }
 
+        // ✅ VALIDATE SERVICE DURATION
+        if (dto.ServiceDurationMinutes % 30 != 0)
+        {
+            return BadRequest(ApiResponse<object>.ErrorResponse(
+                "Thời gian phục vụ phải là bội số của 30 phút (1h, 1.5h, 2h, 2.5h...)"
+            ));
+        }
+
         var userId = GetUserId();
         var (success, message, data) = await _bookingService.CreateBookingAsync(dto, userId);
 
         if (!success)
         {
             return BadRequest(ApiResponse<BookingDto>.ErrorResponse(message));
+        }
+
+        // ✅ CHECK IF PARTY BOOKING (requires approval)
+        if (data?.RequiresApproval == true)
+        {
+            _logger.LogInformation(
+                "Party booking created (requires approval): {BookingCode}, {Duration}m",
+                data.BookingCode, data.ServiceDurationMinutes);
         }
 
         return Ok(ApiResponse<BookingDto>.SuccessResponse(data!, message));

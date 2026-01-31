@@ -27,4 +27,14 @@ public class BookingDto
     public DateTime? CheckOutTime { get; set; }
     public DateTime? CancelledAt { get; set; }
     public string? CancellationReason { get; set; }
+
+    // ✅ NEW FIELDS
+    public int ServiceDurationMinutes { get; set; }
+    public bool IsLateCheckIn { get; set; }
+    public bool DepositForfeited { get; set; }
+    public DateTime ActualEndTime { get; set; }
+
+    // ✅ COMPUTED PROPERTIES
+    public bool RequiresApproval => ServiceDurationMinutes > 240;
+    public bool IsPartyBooking => ServiceDurationMinutes > 240;
 }

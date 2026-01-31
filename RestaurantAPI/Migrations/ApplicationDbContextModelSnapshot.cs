@@ -107,6 +107,12 @@ namespace RestaurantAPI.Migrations
                     b.Property<int>("CustomerId")
                         .HasColumnType("int");
 
+                    b.Property<bool>("DepositForfeited")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("IsLateCheckIn")
+                        .HasColumnType("bit");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
@@ -115,6 +121,9 @@ namespace RestaurantAPI.Migrations
                         .HasColumnType("int");
 
                     b.Property<int>("PaymentStatus")
+                        .HasColumnType("int");
+
+                    b.Property<int>("ServiceDurationMinutes")
                         .HasColumnType("int");
 
                     b.Property<int>("Status")
@@ -926,7 +935,7 @@ namespace RestaurantAPI.Migrations
                             FullName = "System Administrator",
                             IsActive = true,
                             IsEmailVerified = true,
-                            PasswordHash = "$2a$11$8MFhLcC98Op8OwEBagaiceSrlYUb.jHR.emnzHIYEaitJkXH1Gmz6",
+                            PasswordHash = "$2a$11$nM576bbOv.qYsgJC5Q8ePuP7knGB.OcWaVuPrna9lFhpdm6Z/hwmi",
                             Phone = "0123456789",
                             Role = 3
                         });

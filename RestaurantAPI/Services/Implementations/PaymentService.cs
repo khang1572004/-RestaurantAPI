@@ -33,7 +33,6 @@ public class PaymentService : IPaymentService
         CreateDepositPaymentDto dto,
         string ipAddress)
     {
-        // ✅ FIX: Use execution strategy for transactions with retry
         var strategy = _context.Database.CreateExecutionStrategy();
 
         return await strategy.ExecuteAsync(async () =>
@@ -42,7 +41,7 @@ public class PaymentService : IPaymentService
 
             try
             {
-                // ✅ Validation: Check for existing pending payment (prevent double payment)
+                // ✅ Check existing pending payment
                 var existingPendingPayment = await _context.Payments
                     .AnyAsync(p => p.BookingId == dto.BookingId 
                         && p.Status == PaymentStatusEnum.Pending);
@@ -72,7 +71,41 @@ public class PaymentService : IPaymentService
                     };
                 }
 
-                // ✅ Validation: Check booking status
+                // ✅ FIX 1: KHÔNG CHO PHÉP THANH TOÁN WALK-IN (ĐÃ CHECK-IN)
+                if (booking.Status == BookingStatus.CheckedIn)
+                {
+                    _logger.LogWarning(
+                        "Attempted to create deposit payment for checked-in booking {BookingId}", 
+                        dto.BookingId);
+                    
+                    return new CreatePaymentResponse
+                    {
+                        Success = false,
+                        Message = "Không thể thanh toán đặt cọc cho booking đã check-in. Vui lòng thanh toán trực tiếp tại quầy."
+                    };
+                }
+
+                // ✅ FIX 2: KHÔNG CHO PHÉP THANH TOÁN BOOKING ĐÃ HOÀN THÀNH
+                if (booking.Status == BookingStatus.Completed)
+                {
+                    return new CreatePaymentResponse
+                    {
+                        Success = false,
+                        Message = "Booking đã hoàn thành, không thể thanh toán"
+                    };
+                }
+
+                // ✅ FIX 3: KHÔNG CHO PHÉP THANH TOÁN BOOKING NO-SHOW
+                if (booking.Status == BookingStatus.NoShow)
+                {
+                    return new CreatePaymentResponse
+                    {
+                        Success = false,
+                        Message = "Booking đã bị đánh dấu No-Show, không thể thanh toán"
+                    };
+                }
+
+                // Existing validation
                 if (booking.Status == BookingStatus.Cancelled)
                 {
                     return new CreatePaymentResponse
@@ -91,13 +124,34 @@ public class PaymentService : IPaymentService
                     };
                 }
 
-                // ✅ Validation: Check booking date
-                if (booking.BookingDate < DateTime.UtcNow.Date)
+                // ✅ FIX 4: CHECK BOOKING DATE - CHỈ CHO PHÉP THANH TOÁN CHO BOOKING TƯƠNG LAI
+                var bookingDateTime = booking.BookingDate.Date.Add(booking.BookingTime);
+                
+                if (bookingDateTime < DateTime.UtcNow)
                 {
+                    _logger.LogWarning(
+                        "Attempted to pay for past booking {BookingId}. BookingTime: {BookingTime}, Now: {Now}",
+                        dto.BookingId, bookingDateTime, DateTime.UtcNow);
+                    
                     return new CreatePaymentResponse
                     {
                         Success = false,
-                        Message = "Không thể thanh toán cho booking trong quá khứ"
+                        Message = "Không thể thanh toán cho booking đã quá thời gian"
+                    };
+                }
+
+                // ✅ FIX 5: CHỈ CHO PHÉP THANH TOÁN CHO BOOKING PENDING/CONFIRMED
+                if (booking.Status != BookingStatus.Pending && 
+                    booking.Status != BookingStatus.Confirmed)
+                {
+                    _logger.LogWarning(
+                        "Attempted to create payment for booking {BookingId} with invalid status: {Status}",
+                        dto.BookingId, booking.Status);
+                    
+                    return new CreatePaymentResponse
+                    {
+                        Success = false,
+                        Message = $"Không thể thanh toán cho booking có trạng thái: {booking.Status}"
                     };
                 }
 
@@ -105,7 +159,6 @@ public class PaymentService : IPaymentService
                 var depositAmount = booking.Table.CustomDepositAmount 
                     ?? booking.Table.TableType.DepositAmount;
 
-                // ✅ Validation: Check amount
                 if (depositAmount <= 0)
                 {
                     return new CreatePaymentResponse
@@ -130,10 +183,9 @@ public class PaymentService : IPaymentService
                 await _context.SaveChangesAsync();
 
                 _logger.LogInformation(
-                    "Payment {PaymentId} created for booking {BookingId}, amount: {Amount}", 
-                    payment.Id, dto.BookingId, depositAmount);
+                    "Payment {PaymentId} created for booking {BookingId}, amount: {Amount}, status: {BookingStatus}", 
+                    payment.Id, dto.BookingId, depositAmount, booking.Status);
 
-                // Get return URL from config or DTO
                 var returnUrl = dto.ReturnUrl 
                     ?? _configuration["VNPay:ReturnUrl"]
                     ?? throw new InvalidOperationException("ReturnUrl not configured");
@@ -143,7 +195,7 @@ public class PaymentService : IPaymentService
                 string? paymentUrl = null;
                 string? qrCodeUrl = null;
 
-                // Generate payment URL based on method
+                // Generate payment URL
                 if (dto.PaymentMethod == PaymentMethod.VNPay)
                 {
                     try
@@ -156,9 +208,7 @@ public class PaymentService : IPaymentService
                             ipAddress
                         );
                         
-                        _logger.LogInformation(
-                            "VNPay payment URL generated for payment {PaymentId}", 
-                            payment.Id);
+                        _logger.LogInformation("VNPay payment URL generated for payment {PaymentId}", payment.Id);
                     }
                     catch (Exception ex)
                     {
@@ -186,8 +236,7 @@ public class PaymentService : IPaymentService
 
                     if (!success)
                     {
-                        _logger.LogError(
-                            "Failed to create MoMo payment for payment {PaymentId}: {Message}", 
+                        _logger.LogError("Failed to create MoMo payment for payment {PaymentId}: {Message}", 
                             payment.Id, message);
                             
                         await transaction.RollbackAsync();
@@ -202,9 +251,7 @@ public class PaymentService : IPaymentService
                     paymentUrl = url;
                     qrCodeUrl = qr;
                     
-                    _logger.LogInformation(
-                        "MoMo payment URL generated for payment {PaymentId}", 
-                        payment.Id);
+                    _logger.LogInformation("MoMo payment URL generated for payment {PaymentId}", payment.Id);
                 }
                 else
                 {
@@ -244,7 +291,6 @@ public class PaymentService : IPaymentService
     public async Task<(bool Success, string Message, PaymentDto? Payment)> ProcessVNPayCallbackAsync(
         IQueryCollection queryParams)
     {
-        // ✅ FIX: Use execution strategy
         var strategy = _context.Database.CreateExecutionStrategy();
 
         return await strategy.ExecuteAsync(async () =>
@@ -280,7 +326,7 @@ public class PaymentService : IPaymentService
                     return (false, "Không tìm thấy payment", null);
                 }
 
-                // ✅ Idempotency check: Already processed
+                // Idempotency check
                 if (payment.Status == PaymentStatusEnum.Success)
                 {
                     _logger.LogInformation("Payment {PaymentId} already processed successfully", paymentId);
@@ -289,7 +335,6 @@ public class PaymentService : IPaymentService
                     return (true, "Giao dịch đã được xử lý trước đó", existingDto);
                 }
 
-                // ✅ Check amount matches
                 if (payment.Amount != amount)
                 {
                     _logger.LogWarning(
@@ -305,11 +350,26 @@ public class PaymentService : IPaymentService
                 payment.PaidAt = DateTime.UtcNow;
                 payment.PaymentResponse = queryParams.ToString();
 
-                // Update booking
+                // ✅ FIX 6: CẬP NHẬT BOOKING STATUS ĐÚNG LOGIC
                 if (payment.Booking != null)
                 {
                     payment.Booking.PaymentStatus = PaymentStatus.Paid;
-                    payment.Booking.Status = BookingStatus.Confirmed;
+                    
+                    // ✅ CHỈ CẬP NHẬT STATUS NẾU ĐANG Ở PENDING
+                    // KHÔNG ĐỔI STATUS NẾU ĐÃ CheckedIn/Completed/etc
+                    if (payment.Booking.Status == BookingStatus.Pending)
+                    {
+                        payment.Booking.Status = BookingStatus.Confirmed;
+                        _logger.LogInformation(
+                            "Updated booking {BookingId} from Pending to Confirmed after payment",
+                            payment.Booking.Id);
+                    }
+                    else
+                    {
+                        _logger.LogInformation(
+                            "Payment successful but booking {BookingId} status remains {Status}",
+                            payment.Booking.Id, payment.Booking.Status);
+                    }
                 }
 
                 await _context.SaveChangesAsync();
@@ -319,7 +379,7 @@ public class PaymentService : IPaymentService
                     "VNPay payment {PaymentId} processed successfully. Transaction: {TransactionId}", 
                     paymentId, transactionId);
 
-                // ✅ Send email asynchronously (don't block the response)
+                // Send email asynchronously
                 if (payment.Booking != null)
                 {
                     _ = Task.Run(async () =>
@@ -339,15 +399,11 @@ public class PaymentService : IPaymentService
                                 "
                             );
                             
-                            _logger.LogInformation(
-                                "Confirmation email sent for payment {PaymentId}", 
-                                paymentId);
+                            _logger.LogInformation("Confirmation email sent for payment {PaymentId}", paymentId);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, 
-                                "Failed to send confirmation email for payment {PaymentId}", 
-                                paymentId);
+                            _logger.LogError(ex, "Failed to send confirmation email for payment {PaymentId}", paymentId);
                         }
                     });
                 }
@@ -367,7 +423,6 @@ public class PaymentService : IPaymentService
     public async Task<(bool Success, string Message, PaymentDto? Payment)> ProcessMoMoCallbackAsync(
         IQueryCollection queryParams)
     {
-        // ✅ FIX: Use execution strategy
         var strategy = _context.Database.CreateExecutionStrategy();
 
         return await strategy.ExecuteAsync(async () =>
@@ -378,7 +433,6 @@ public class PaymentService : IPaymentService
             {
                 _logger.LogInformation("Processing MoMo callback: {QueryString}", queryParams.ToString());
 
-                // ✅ Validate signature first
                 var isValid = _momoService.ValidateCallback(queryParams, out string transactionId, out decimal amount);
 
                 if (!isValid)
@@ -387,9 +441,6 @@ public class PaymentService : IPaymentService
                     return (false, "Xác thực callback MoMo thất bại", null);
                 }
 
-                // ✅ Extract paymentId from orderId
-                // Format: PAYMENT_{paymentId}_{timestamp}
-                // Example: PAYMENT_123_20260103123456
                 var orderIdStr = queryParams["orderId"].ToString();
                 
                 if (string.IsNullOrEmpty(orderIdStr))
@@ -415,7 +466,6 @@ public class PaymentService : IPaymentService
                 _logger.LogInformation("Extracted paymentId: {PaymentId} from orderId: {OrderId}", 
                     paymentId, orderIdStr);
 
-                // ✅ Get payment with related data
                 var payment = await _context.Payments
                     .Include(p => p.Booking)
                         .ThenInclude(b => b!.Customer)
@@ -427,7 +477,7 @@ public class PaymentService : IPaymentService
                     return (false, "Không tìm thấy payment", null);
                 }
 
-                // ✅ Idempotency check - Already processed successfully
+                // Idempotency check
                 if (payment.Status == PaymentStatusEnum.Success)
                 {
                     _logger.LogInformation("Payment {PaymentId} already processed successfully", paymentId);
@@ -436,21 +486,18 @@ public class PaymentService : IPaymentService
                     return (true, "Giao dịch đã được xử lý trước đó", existingDto);
                 }
 
-                // ✅ Check if payment was already failed
                 if (payment.Status == PaymentStatusEnum.Failed)
                 {
                     _logger.LogWarning("Payment {PaymentId} was already marked as failed", paymentId);
                     return (false, "Payment đã bị đánh dấu thất bại trước đó", null);
                 }
 
-                // ✅ Validate amount matches
                 if (payment.Amount != amount)
                 {
                     _logger.LogWarning(
                         "Amount mismatch for payment {PaymentId}. Expected: {Expected}, Got: {Actual}",
                         paymentId, payment.Amount, amount);
                     
-                    // Mark payment as failed
                     payment.Status = PaymentStatusEnum.Failed;
                     payment.PaymentResponse = queryParams.ToString();
                     await _context.SaveChangesAsync();
@@ -459,7 +506,6 @@ public class PaymentService : IPaymentService
                     return (false, "Số tiền không khớp", null);
                 }
 
-                // ✅ Check resultCode from MoMo
                 var resultCode = queryParams["resultCode"].ToString();
                 
                 if (resultCode != "0")
@@ -469,7 +515,6 @@ public class PaymentService : IPaymentService
                         "MoMo payment {PaymentId} failed with resultCode: {ResultCode}, message: {Message}",
                         paymentId, resultCode, message);
                     
-                    // Mark payment as failed
                     payment.Status = PaymentStatusEnum.Failed;
                     payment.PaymentResponse = queryParams.ToString();
                     await _context.SaveChangesAsync();
@@ -478,21 +523,31 @@ public class PaymentService : IPaymentService
                     return (false, $"Thanh toán thất bại: {message}", null);
                 }
 
-                // ✅ Update payment status
+                // Update payment
                 payment.Status = PaymentStatusEnum.Success;
                 payment.TransactionId = transactionId;
                 payment.PaidAt = DateTime.UtcNow;
                 payment.PaymentResponse = queryParams.ToString();
 
-                // ✅ Update booking status
+                // ✅ FIX 7: CẬP NHẬT BOOKING STATUS ĐÚNG LOGIC (GIỐNG VNPAY)
                 if (payment.Booking != null)
                 {
                     payment.Booking.PaymentStatus = PaymentStatus.Paid;
-                    payment.Booking.Status = BookingStatus.Confirmed;
                     
-                    _logger.LogInformation(
-                        "Updated booking {BookingId} status to Confirmed and PaymentStatus to Paid",
-                        payment.Booking.Id);
+                    // ✅ CHỈ CẬP NHẬT STATUS NẾU ĐANG Ở PENDING
+                    if (payment.Booking.Status == BookingStatus.Pending)
+                    {
+                        payment.Booking.Status = BookingStatus.Confirmed;
+                        _logger.LogInformation(
+                            "Updated booking {BookingId} from Pending to Confirmed after payment",
+                            payment.Booking.Id);
+                    }
+                    else
+                    {
+                        _logger.LogInformation(
+                            "Payment successful but booking {BookingId} status remains {Status}",
+                            payment.Booking.Id, payment.Booking.Status);
+                    }
                 }
 
                 await _context.SaveChangesAsync();
@@ -502,7 +557,7 @@ public class PaymentService : IPaymentService
                     "MoMo payment {PaymentId} processed successfully. Transaction: {TransactionId}", 
                     paymentId, transactionId);
 
-                // ✅ Send confirmation email asynchronously (fire-and-forget)
+                // Send confirmation email
                 if (payment.Booking != null && !string.IsNullOrEmpty(payment.Booking.Customer?.Email))
                 {
                     _ = Task.Run(async () =>
@@ -530,15 +585,11 @@ public class PaymentService : IPaymentService
                                 "
                             );
                             
-                            _logger.LogInformation(
-                                "Confirmation email sent for payment {PaymentId}", 
-                                paymentId);
+                            _logger.LogInformation("Confirmation email sent for payment {PaymentId}", paymentId);
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, 
-                                "Failed to send confirmation email for payment {PaymentId}", 
-                                paymentId);
+                            _logger.LogError(ex, "Failed to send confirmation email for payment {PaymentId}", paymentId);
                         }
                     });
                 }

@@ -19,6 +19,10 @@ public class CreateWalkInDto
     [Required(ErrorMessage = "Bàn là bắt buộc")]
     public int TableId { get; set; }
 
+    // NEW FIELD - Staff can set any duration (validated by system)
+    [Range(60, 600, ErrorMessage = "Thời gian phục vụ tối thiểu 1 giờ")]
+    public int ServiceDurationMinutes { get; set; } = 120;
+
     [MaxLength(500)]
     public string? Notes { get; set; }
 }

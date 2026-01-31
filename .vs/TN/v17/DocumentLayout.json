@@ -1,0 +1,49 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\ADMIN\\OneDrive\\Desktop\\TN\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{3DBC1643-546F-51A0-7F88-AAA63BC43FC5}|RestaurantAPI\\RestaurantAPI.csproj|c:\\users\\admin\\onedrive\\desktop\\tn\\restaurantapi\\restaurantapi.http||{5703B403-55E7-4C63-8C88-A8F52C7A45C5}",
+      "RelativeMoniker": "D:0:0:{3DBC1643-546F-51A0-7F88-AAA63BC43FC5}|RestaurantAPI\\RestaurantAPI.csproj|solutionrelative:restaurantapi\\restaurantapi.http||{5703B403-55E7-4C63-8C88-A8F52C7A45C5}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 3,
+          "Children": [
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{1c4feeaa-4718-4aa9-859d-94ce25d182ba}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:0:0:{b1e99781-ab81-11d0-b683-00aa00a3ee26}"
+            },
+            {
+              "$type": "Bookmark",
+              "Name": "ST:1:0:{e8b06f52-6d01-11d2-aa7d-00c04f990343}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "RestaurantAPI.http",
+              "DocumentMoniker": "C:\\Users\\ADMIN\\OneDrive\\Desktop\\TN\\RestaurantAPI\\RestaurantAPI.http",
+              "RelativeDocumentMoniker": "RestaurantAPI\\RestaurantAPI.http",
+              "ToolTip": "C:\\Users\\ADMIN\\OneDrive\\Desktop\\TN\\RestaurantAPI\\RestaurantAPI.http",
+              "RelativeToolTip": "RestaurantAPI\\RestaurantAPI.http",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.003502|",
+              "WhenOpened": "2026-01-05T17:22:41.139Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

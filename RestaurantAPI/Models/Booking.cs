@@ -38,6 +38,11 @@ public class Booking
     [MaxLength(500)]
     public string? CancellationReason { get; set; } 
 
+    // NEW
+    public int ServiceDurationMinutes { get; set; } = 120; // Default 2h
+    public bool IsLateCheckIn { get; set; } = false;
+    public bool DepositForfeited { get; set; } = false;
+
     // Navigation
     public User Customer { get; set; } = null!;
     public Table Table { get; set; } = null!;
