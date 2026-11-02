@@ -55,7 +55,7 @@ public class VoucherService : IVoucherService
         decimal? orderValue = null)
     {
         var voucher = await _context.Vouchers
-            .FirstOrDefaultAsync(v => v.Code == code);
+            .FirstOrDefaultAsync(v => v.Code.ToUpper() == code.Trim().ToUpper());
 
         if (voucher == null)
         {
@@ -156,7 +156,7 @@ public class VoucherService : IVoucherService
     {
         if (voucher.DiscountType == DiscountType.Percentage)
         {
-            return orderValue * (voucher.DiscountValue / 100);
+            return Math.Min(orderValue, orderValue * (voucher.DiscountValue / 100));
         }
         else
         {

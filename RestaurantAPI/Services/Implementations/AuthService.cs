@@ -2,6 +2,8 @@ using Microsoft.EntityFrameworkCore;
 using RestaurantAPI.DTOs.Auth;
 using RestaurantAPI.Services.Interfaces;
 using BCrypt.Net;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace RestaurantAPI.Services.Implementations;
 
@@ -61,7 +63,10 @@ public class AuthService : IAuthService
 
             // Tao token
             var accessToken = _tokenService.GenerateAccessToken(user);
-            var refreshToken = _tokenService.GenerateRefreshToken();
+             var refreshToken = _tokenService.GenerateRefreshToken();
+             user.RefreshTokenHash = HashRefreshToken(refreshToken);
+             user.RefreshTokenExpiry = DateTime.UtcNow.AddDays(7);
+             await _context.SaveChangesAsync();
 
              var response = new LoginResponseDto
             {
@@ -115,7 +120,10 @@ public class AuthService : IAuthService
 
             // Generate tokens
             var accessToken = _tokenService.GenerateAccessToken(user);
-            var refreshToken = _tokenService.GenerateRefreshToken();
+             var refreshToken = _tokenService.GenerateRefreshToken();
+             user.RefreshTokenHash = HashRefreshToken(refreshToken);
+             user.RefreshTokenExpiry = DateTime.UtcNow.AddDays(7);
+             await _context.SaveChangesAsync();
 
             var response = new LoginResponseDto
             {
@@ -246,17 +254,42 @@ public class AuthService : IAuthService
     {
         try
         {
-            // Note: In production, you should store refresh tokens in database
-            // For now, we'll just generate new tokens
-            // This is a simplified implementation
+            var hash = HashRefreshToken(refreshToken);
+            var user = await _context.Users.FirstOrDefaultAsync(u =>
+                u.RefreshTokenHash == hash && u.IsActive &&
+                u.RefreshTokenExpiry.HasValue && u.RefreshTokenExpiry > DateTime.UtcNow);
 
-            // TODO: Implement proper refresh token validation with database storage
-            return (false, "Refresh token feature chưa được triển khai đầy đủ", null);
+            if (user == null)
+                return (false, "Refresh token không hợp lệ hoặc đã hết hạn", null);
+
+            var accessToken = _tokenService.GenerateAccessToken(user);
+            var rotatedToken = _tokenService.GenerateRefreshToken();
+            user.RefreshTokenHash = HashRefreshToken(rotatedToken);
+            user.RefreshTokenExpiry = DateTime.UtcNow.AddDays(7);
+            await _context.SaveChangesAsync();
+
+            return (true, "Làm mới token thành công", new LoginResponseDto
+            {
+                Token = accessToken,
+                RefreshToken = rotatedToken,
+                ExpiresAt = _tokenService.GetTokenExpiration(),
+                User = new UserDto
+                {
+                    Id = user.Id, Email = user.Email, FullName = user.FullName,
+                    Phone = user.Phone, Role = user.Role.ToString(),
+                    IsEmailVerified = user.IsEmailVerified
+                }
+            });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during token refresh");
             return (false, "Đã xảy ra lỗi trong quá trình làm mới token", null);
         }
+    }
+
+    private static string HashRefreshToken(string token)
+    {
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
     }
 }

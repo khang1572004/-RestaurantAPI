@@ -423,9 +423,10 @@ public class BookingService : IBookingService
                 return (false, "Booking đã bị hủy", null);
             }
 
-            if (booking.Status == BookingStatus.PendingApproval)
+            if (booking.Status == BookingStatus.PendingApproval || booking.Status == BookingStatus.AwaitingDeposit ||
+                booking.PaymentStatus != PaymentStatus.Partial)
             {
-                return (false, "Booking đang chờ duyệt, chưa thể check-in", null);
+                return (false, "Booking chưa được duyệt hoặc chưa thanh toán cọc", null);
             }
 
             var checkInWindow = _configuration.GetValue<int>("BookingSettings:CheckInWindowMinutes", 30);
@@ -594,7 +595,7 @@ public class BookingService : IBookingService
                 return (false, $"Booking không ở trạng thái chờ duyệt. Trạng thái hiện tại: {booking.Status}");
             }
 
-            booking.Status = BookingStatus.Confirmed;
+            booking.Status = BookingStatus.AwaitingDeposit;
             if (!string.IsNullOrEmpty(adminNotes))
             {
                 booking.Notes = (booking.Notes ?? "") + $"\n[Admin Note]: {adminNotes}";
@@ -739,8 +740,8 @@ public class BookingService : IBookingService
             
             try
             {
-                var booking = await _context.Bookings
-                    .FirstOrDefaultAsync(b => b.Id == bookingId && b.CustomerId == customerId);
+            var booking = await _context.Bookings
+                .FirstOrDefaultAsync(b => b.Id == bookingId && b.CustomerId == customerId);
 
                 if (booking == null)
                 {
@@ -759,7 +760,7 @@ public class BookingService : IBookingService
 
                 var cancellationHours = _configuration.GetValue<int>("BookingSettings:CancellationHours", 4);
                 var bookingDateTime = booking.BookingDate.Date.Add(booking.BookingTime);
-                var hoursUntilBooking = (bookingDateTime - DateTime.UtcNow).TotalHours;
+                var hoursUntilBooking = (bookingDateTime - GetCurrentVietnamTime()).TotalHours;
 
                 if (hoursUntilBooking < cancellationHours)
                 {
@@ -798,8 +799,11 @@ public class BookingService : IBookingService
                 if (booking.PaymentStatus == PaymentStatus.Paid || booking.PaymentStatus == PaymentStatus.Partial)
                 {
                     var successfulPayment = await _context.Payments
-                        .FirstOrDefaultAsync(p => p.BookingId == bookingId 
-                            && p.Status == PaymentStatusEnum.Success);
+                        .Where(p => p.BookingId == bookingId
+                            && p.PaymentType == PaymentType.Deposit
+                            && p.Status == PaymentStatusEnum.Success)
+                        .OrderByDescending(p => p.CreatedAt)
+                        .FirstOrDefaultAsync();
 
                     if (successfulPayment != null)
                     {
@@ -807,17 +811,22 @@ public class BookingService : IBookingService
                             "Booking {BookingId} has successful payment {PaymentId}, creating refund request",
                             bookingId, successfulPayment.Id);
 
-                        var refundRequest = new RefundRequest
-                        {
-                            BookingId = bookingId,
-                            PaymentId = successfulPayment.Id,
-                            RefundAmount = successfulPayment.Amount,
-                            Reason = reason,
-                            Status = RefundStatus.Pending,
-                            RequestedAt = DateTime.UtcNow
-                        };
+                        var refundExists = await _context.RefundRequests.AnyAsync(r =>
+                            r.PaymentId == successfulPayment.Id &&
+                            r.Status != RefundStatus.Rejected);
 
-                        _context.RefundRequests.Add(refundRequest);
+                        if (!refundExists)
+                        {
+                            _context.RefundRequests.Add(new RefundRequest
+                            {
+                                BookingId = bookingId,
+                                PaymentId = successfulPayment.Id,
+                                RefundAmount = successfulPayment.Amount,
+                                Reason = reason,
+                                Status = RefundStatus.Pending,
+                                RequestedAt = DateTime.UtcNow
+                            });
+                        }
 
                         _logger.LogInformation(
                             "Created refund request for payment {PaymentId}, amount: {Amount}",
@@ -863,14 +872,15 @@ public class BookingService : IBookingService
 
         if (!string.IsNullOrEmpty(filter))
         {
-            var now = DateTime.UtcNow;
+            var now = GetCurrentVietnamTime();
             query = filter.ToLower() switch
             {
                 "upcoming" => query.Where(b => b.BookingDate >= now.Date && 
                     (b.Status == BookingStatus.Pending || 
                      b.Status == BookingStatus.PendingApproval ||
+                     b.Status == BookingStatus.AwaitingDeposit ||
                      b.Status == BookingStatus.Confirmed)),
-                "past" => query.Where(b => b.BookingDate < now.Date || b.Status == BookingStatus.Completed),
+                "past" => query.Where(b => b.BookingDate < GetCurrentVietnamTime().Date || b.Status == BookingStatus.Completed),
                 "cancelled" => query.Where(b => b.Status == BookingStatus.Cancelled),
                 _ => query
             };
@@ -920,13 +930,14 @@ public class BookingService : IBookingService
 
     public async Task<List<TableStatusDto>> GetTableStatusAsync()
     {
-        var now = DateTime.UtcNow;
+            var now = GetCurrentVietnamTime();
         var today = now.Date;
 
         var tables = await _context.Tables
             .Include(t => t.Zone)
             .Include(t => t.Bookings)
-            .Where(t => t.IsActive)
+                .ThenInclude(b => b.Customer)
+            .Where(t => t.IsActive && t.Status != TableStatus.Maintenance)
             .ToListAsync();
 
         var result = new List<TableStatusDto>();
@@ -934,8 +945,8 @@ public class BookingService : IBookingService
         foreach (var table in tables)
         {
             var currentBooking = table.Bookings
-                .Where(b => b.BookingDate.Date == today && 
-                           b.Status == BookingStatus.CheckedIn)
+                .Where(b => b.BookingDate.Date == today &&
+                            b.Status == BookingStatus.CheckedIn)
                 .OrderBy(b => b.BookingTime)
                 .FirstOrDefault();
 
@@ -966,6 +977,17 @@ public class BookingService : IBookingService
             if (booking == null)
             {
                 return (false, "Không tìm thấy booking");
+            }
+
+            if (booking.Status != BookingStatus.Pending && booking.Status != BookingStatus.Confirmed)
+            {
+                return (false, "Chỉ booking đang chờ hoặc đã xác nhận mới có thể đánh dấu no-show");
+            }
+
+            if (GetCurrentVietnamTime() < booking.BookingDate.Date.Add(booking.BookingTime).AddMinutes(
+                _configuration.GetValue<int>("BookingSettings:NoShowGraceMinutes", 30)))
+            {
+                return (false, "Chưa quá thời gian cho phép đánh dấu no-show");
             }
 
             booking.Status = BookingStatus.NoShow;
@@ -1104,10 +1126,17 @@ public class BookingService : IBookingService
                 return (false, "Không tìm thấy booking");
             }
 
-            booking.Status = BookingStatus.Confirmed;
-            await _context.SaveChangesAsync();
+            if (booking.Status == BookingStatus.PendingApproval)
+            {
+                return await ApprovePartyBookingAsync(bookingId);
+            }
 
-            return (true, "Duyệt booking thành công");
+            if (booking.Status != BookingStatus.Pending)
+            {
+                return (false, $"Booking không ở trạng thái chờ duyệt. Trạng thái hiện tại: {booking.Status}");
+            }
+
+            return (false, "Booking thường chỉ được xác nhận sau khi khách thanh toán cọc");
         }
         catch (Exception ex)
         {
@@ -1127,6 +1156,11 @@ public class BookingService : IBookingService
                 return (false, "Không tìm thấy booking");
             }
 
+            if (booking.Status != BookingStatus.Pending && booking.Status != BookingStatus.PendingApproval)
+            {
+                return (false, $"Chỉ booking chờ duyệt mới có thể bị từ chối. Trạng thái hiện tại: {booking.Status}");
+            }
+
             booking.Status = BookingStatus.Cancelled;
             booking.CancelledAt = DateTime.UtcNow;
             booking.CancellationReason = reason;
@@ -1139,6 +1173,54 @@ public class BookingService : IBookingService
         {
             _logger.LogError(ex, "Error rejecting booking {BookingId}", bookingId);
             return (false, "Đã xảy ra lỗi");
+        }
+    }
+
+    public async Task<(bool Success, string Message)> CancelBookingByAdminAsync(int bookingId, string reason)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            var booking = await _context.Bookings.FirstOrDefaultAsync(b => b.Id == bookingId);
+            if (booking == null) return (false, "Không tìm thấy booking");
+            if (booking.Status is BookingStatus.Cancelled or BookingStatus.Completed or BookingStatus.NoShow)
+                return (false, $"Không thể hủy booking ở trạng thái {booking.Status}");
+
+            var pendingPayments = await _context.Payments
+                .Where(p => p.BookingId == bookingId && p.Status == PaymentStatusEnum.Pending)
+                .ToListAsync();
+            foreach (var payment in pendingPayments) payment.Status = PaymentStatusEnum.Cancelled;
+
+            var deposit = await _context.Payments
+                .Where(p => p.BookingId == bookingId && p.PaymentType == PaymentType.Deposit && p.Status == PaymentStatusEnum.Success)
+                .OrderByDescending(p => p.CreatedAt)
+                .FirstOrDefaultAsync();
+
+            if (deposit != null && !await _context.RefundRequests.AnyAsync(r => r.PaymentId == deposit.Id && r.Status != RefundStatus.Rejected))
+            {
+                _context.RefundRequests.Add(new RefundRequest
+                {
+                    BookingId = bookingId,
+                    PaymentId = deposit.Id,
+                    RefundAmount = deposit.Amount,
+                    Reason = $"Admin hủy booking: {reason}",
+                    Status = RefundStatus.Pending,
+                    RequestedAt = DateTime.UtcNow
+                });
+            }
+
+            booking.Status = BookingStatus.Cancelled;
+            booking.CancelledAt = DateTime.UtcNow;
+            booking.CancellationReason = $"Admin: {reason}";
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+            return (true, deposit == null ? "Đã hủy booking" : "Đã hủy booking và tạo yêu cầu hoàn cọc");
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            _logger.LogError(ex, "Error cancelling booking {BookingId} by admin", bookingId);
+            return (false, "Đã xảy ra lỗi khi admin hủy booking");
         }
     }
 

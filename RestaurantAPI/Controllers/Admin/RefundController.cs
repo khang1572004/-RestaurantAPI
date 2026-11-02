@@ -235,6 +235,11 @@ public class RefundController : ControllerBase
                     refund.Reason ?? "Customer cancellation"
                 );
             }
+            else
+            {
+                return BadRequest(ApiResponse<object>.ErrorResponse(
+                    "Phương thức thanh toán này chưa hỗ trợ hoàn tiền tự động"));
+            }
 
             if (success)
             {

@@ -35,7 +35,7 @@ public class StaffBookingController : ControllerBase
     [HttpGet("today")]
     public async Task<IActionResult> GetTodayBookings()
     {
-        var bookings = await _bookingService.GetBookingsByDateAsync(DateTime.UtcNow.Date);
+        var bookings = await _bookingService.GetBookingsByDateAsync(DateTime.UtcNow.AddHours(7).Date);
         return Ok(ApiResponse<List<BookingDto>>.SuccessResponse(bookings));
     }
 
@@ -52,7 +52,8 @@ public class StaffBookingController : ControllerBase
     /// <summary>
     /// CN030: Xem sơ đồ bàn và trạng thái
     /// </summary>
-    [HttpGet("../tables/status")]
+    [HttpGet("/api/staff/tables/status")]
+    [HttpGet("tables/status")]
     public async Task<IActionResult> GetTableStatus()
     {
         var tables = await _bookingService.GetTableStatusAsync();

@@ -37,6 +37,10 @@ public class User
 
     public DateTime? LastLoginAt { get; set; }
 
+    [MaxLength(128)]
+    public string? RefreshTokenHash { get; set; }
+    public DateTime? RefreshTokenExpiry { get; set; }
+
     // Navigation
     public ICollection<Booking> Bookings { get; set; } = new List<Booking>();
     public ICollection<Review> Reviews { get; set; } = new List<Review>();

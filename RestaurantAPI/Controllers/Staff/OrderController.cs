@@ -268,6 +268,13 @@ public class OrderController : ControllerBase
         }
     }
 
+    [HttpGet("history")]
+    public async Task<IActionResult> GetHistory([FromQuery] int? tableId = null, [FromQuery] int? bookingId = null)
+    {
+        var orders = await _orderService.GetOrderHistoryAsync(tableId, bookingId);
+        return Ok(ApiResponse<List<OrderDto>>.SuccessResponse(orders, "Lấy lịch sử hóa đơn thành công"));
+    }
+
     // Bonus: Hủy order
     /// <summary>
     /// Hủy order (chỉ khi chưa thanh toán)

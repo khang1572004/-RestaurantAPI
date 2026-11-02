@@ -37,7 +37,7 @@ public class TableAvailabilityService : ITableAvailabilityService
         var tables = await _context.Tables
             .Include(t => t.Zone)
             .Include(t => t.TableType)
-            .Where(t => t.IsActive && t.Capacity >= numGuests && t.Status == TableStatus.Available)
+            .Where(t => t.IsActive && t.Capacity >= numGuests && t.Status != TableStatus.Maintenance)
             .ToListAsync();
 
         var availableTables = new List<AvailableTableDto>();
@@ -87,7 +87,7 @@ public class TableAvailabilityService : ITableAvailabilityService
     {
         var table = await _context.Tables.FindAsync(tableId);
 
-        if (table == null || !table.IsActive || table.Status != TableStatus.Available)
+        if (table == null || !table.IsActive || table.Status == TableStatus.Maintenance)
         {
             return false;
         }

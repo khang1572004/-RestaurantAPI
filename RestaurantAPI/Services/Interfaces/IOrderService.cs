@@ -29,5 +29,6 @@ public interface IOrderService
     Task<OrderDto?> GetOrderByIdAsync(int orderId);
     Task<List<OrderDto>> GetOrdersByBookingIdAsync(int bookingId);
     Task<List<OrderDto>> GetOrdersByTableIdAsync(int tableId);
+    Task<List<OrderDto>> GetOrderHistoryAsync(int? tableId, int? bookingId);
     Task<bool> CancelOrderAsync(int orderId, int staffId);
 }

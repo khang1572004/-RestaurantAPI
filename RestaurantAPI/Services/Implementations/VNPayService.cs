@@ -1,6 +1,7 @@
 using RestaurantAPI.Services.Interfaces;
 using System.Security.Cryptography;
 using System.Text;
+using System.Net;
 
 namespace RestaurantAPI.Services.Implementations;
 
@@ -150,12 +151,8 @@ public class VNPayService : IVNPayService
                 "VNPay refund initiated for transaction {TransactionId}, amount: {Amount}, reason: {Reason}", 
                 transactionId, amount, reason);
             
-            // TODO: Implement actual VNPay refund API call
-            // For now, return success for sandbox testing
-            
-            await Task.Delay(100); // Simulate API call
-            
-            return (true, "Refund request sent to VNPay");
+            await Task.CompletedTask;
+            return (false, "VNPay refund chưa được bật: cần tích hợp API hoàn tiền và callback xác nhận");
         }
         catch (Exception ex)
         {
@@ -193,7 +190,19 @@ public class VNPayLibrary
     {
         var data = new StringBuilder();
         
-        // ✅ Build query string with URL encoding
+        // VNPay signs the URL-encoded query values, then appends the same encoded values.
+        // ponytail: keep one canonical query builder so signing and redirect cannot drift.
+        var encodedPairs = _requestData
+            .Where(kv => !string.IsNullOrEmpty(kv.Value))
+            .Select(kv => $"{kv.Key}={WebUtility.UrlEncode(kv.Value)}")
+            .ToList();
+
+        var signString = string.Join("&", encodedPairs);
+        var vnpSecureHash = HmacSHA512(hashSecret, signString);
+        var queryString = string.Join("&", encodedPairs);
+
+        return $"{baseUrl}?{queryString}&vnp_SecureHash={vnpSecureHash}";
+        /*
         foreach (var kv in _requestData)
         {
             if (!string.IsNullOrEmpty(kv.Value))
@@ -234,13 +243,15 @@ public class VNPayLibrary
         var vnpSecureHash = HmacSHA512(hashSecret, signString);
         
         return $"{baseUrl}?{queryString}&vnp_SecureHash={vnpSecureHash}";
+        */
     }
 
     public bool ValidateSignature(string inputHash, string hashSecret)
     {
         var data = new StringBuilder();
         
-        // ✅ FIXED: Build raw string for signature (NO URL encoding)
+        // VNPay sends decoded query values through ASP.NET. Re-encode them using
+        // the same canonical format used when creating the payment URL.
         foreach (var kv in _responseData)
         {
             if (!string.IsNullOrEmpty(kv.Value) 
@@ -249,7 +260,7 @@ public class VNPayLibrary
             {
                 data.Append(kv.Key);
                 data.Append("=");
-                data.Append(kv.Value);
+                data.Append(WebUtility.UrlEncode(kv.Value));
                 data.Append("&");
             }
         }

@@ -13,7 +13,8 @@ public enum BookingStatus
     CheckedIn = 4,          // Đã check-in 
     Completed = 5,          // Hoàn thành 
     Cancelled = 6,          // Đã hủy 
-    NoShow = 7              // Không đến 
+    NoShow = 7,             // Không đến
+    AwaitingDeposit = 8     // Đã duyệt, chờ khách thanh toán cọc
 }
 
 public enum PaymentStatus

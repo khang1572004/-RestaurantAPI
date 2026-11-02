@@ -53,7 +53,7 @@ public class PaymentController : ControllerBase
             "User {UserId} creating payment for booking {BookingId} from IP {IP}",
             userId, dto.BookingId, ipAddress);
 
-        var result = await _paymentService.CreateDepositPaymentAsync(dto, ipAddress);
+        var result = await _paymentService.CreateDepositPaymentAsync(dto, userId, ipAddress);
 
         if (!result.Success)
         {
@@ -81,20 +81,20 @@ public class PaymentController : ControllerBase
             if (!success)
             {
                 _logger.LogWarning("VNPay callback failed: {Message}", message);
-                return Redirect($"{frontendUrl}/booking/payment-result?success=false&message={Uri.EscapeDataString(message)}");
+                return Redirect($"{frontendUrl}/payment-result?success=false&message={Uri.EscapeDataString(message)}");
             }
 
             _logger.LogInformation(
                 "VNPay callback successful for booking {BookingCode}", 
                 payment?.BookingCode);
 
-            return Redirect($"{frontendUrl}/booking/payment-result?success=true&bookingCode={payment?.BookingCode}&amount={payment?.Amount}");
+            return Redirect($"{frontendUrl}/payment-result?success=true&bookingCode={payment?.BookingCode}&amount={payment?.Amount}");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing VNPay callback");
             var frontendUrl = GetFrontendUrl();
-            return Redirect($"{frontendUrl}/booking/payment-result?success=false&message={Uri.EscapeDataString("Đã xảy ra lỗi")}");
+            return Redirect($"{frontendUrl}/payment-result?success=false&message={Uri.EscapeDataString("Đã xảy ra lỗi")}");
         }
     }
 
@@ -187,7 +187,24 @@ public class PaymentController : ControllerBase
     [Authorize]
     public async Task<IActionResult> GetPaymentsByBooking(int bookingId)
     {
-        // TODO: Add authorization check - customers should only see their own bookings
+        if (User.IsInRole("Customer"))
+        {
+            var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!int.TryParse(claim, out var customerId))
+            {
+                return Unauthorized(ApiResponse<object>.ErrorResponse("Không thể xác thực người dùng"));
+            }
+
+            var booking = await _paymentService.GetPaymentsByCustomerIdAsync(customerId);
+            var ownPayments = booking.Where(p => p.BookingId == bookingId).ToList();
+            if (!ownPayments.Any())
+            {
+                return NotFound(ApiResponse<object>.ErrorResponse("Không tìm thấy thanh toán của booking"));
+            }
+
+            return Ok(ApiResponse<List<PaymentDto>>.SuccessResponse(ownPayments));
+        }
+
         var payments = await _paymentService.GetPaymentsByBookingIdAsync(bookingId);
         return Ok(ApiResponse<List<PaymentDto>>.SuccessResponse(payments));
     }

@@ -168,9 +168,8 @@ public class BookingController : ControllerBase
     [HttpGet("my-payments")]
     public async Task<IActionResult> GetMyPayments()
     {
-        // TODO: Implement in Phase 4
-        return Ok(ApiResponse<List<object>>.SuccessResponse(new List<object>(), 
-            "Chức năng thanh toán sẽ được triển khai ở Phase 4"));
+        return Ok(ApiResponse<object>.SuccessResponse(null,
+            "Vui lòng sử dụng /api/payment/my-payments để xem lịch sử thanh toán"));
     }
 }
 

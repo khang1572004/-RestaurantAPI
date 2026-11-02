@@ -96,19 +96,25 @@ public class AdminBookingController : ControllerBase
     }
 
     /// <summary>
-    /// CN068: Hủy đặt bàn (Admin)
+    /// Booking history is financial/audit data. Hard delete is intentionally disabled.
+    /// Use POST /{id}/cancel with a reason instead.
     /// </summary>
     [HttpDelete("{id}")]
-    public async Task<IActionResult> Delete(int id)
-    {
-        var (success, message) = await _bookingService.DeleteBookingAsync(id);
+    public IActionResult Delete(int id) => StatusCode(StatusCodes.Status405MethodNotAllowed,
+        ApiResponse<object>.ErrorResponse("Không được xóa booking. Hãy dùng chức năng hủy booking kèm lý do."));
 
-        if (!success)
+    [HttpPost("{id}/cancel")]
+    public async Task<IActionResult> Cancel(int id, [FromBody] CancelBookingDto dto)
+    {
+        if (!ModelState.IsValid)
         {
-            return BadRequest(ApiResponse<object>.ErrorResponse(message));
+            return BadRequest(ApiResponse<object>.ErrorResponse("Dữ liệu không hợp lệ"));
         }
 
-        return Ok(ApiResponse<object>.SuccessResponse(null, message));
+        var (success, message) = await _bookingService.CancelBookingByAdminAsync(id, dto.Reason);
+        return success
+            ? Ok(ApiResponse<object>.SuccessResponse(null, message))
+            : BadRequest(ApiResponse<object>.ErrorResponse(message));
     }
 
     /// <summary>

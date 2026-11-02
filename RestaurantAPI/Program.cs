@@ -9,6 +9,9 @@ using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// PostgreSQL/Npgsql compatibility for existing DateTime-based models and DTOs.
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 // ✅ DEBUG: Check config được load
 var minHours = builder.Configuration.GetValue<int>("BookingSettings:MinAdvanceHours", 999);
 Console.WriteLine($"🔍 DEBUG: MinAdvanceHours from config = {minHours}");
@@ -16,9 +19,9 @@ Console.WriteLine($"🔍 DEBUG: MinAdvanceHours from config = {minHours}");
 // ===== Database Context =====
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
 {
-    options.UseSqlServer(
+    options.UseNpgsql(
         builder.Configuration.GetConnectionString("DefaultConnection"),
-        sqlOptions => sqlOptions.EnableRetryOnFailure()
+        npgsqlOptions => npgsqlOptions.EnableRetryOnFailure()
     );
     
     if (builder.Environment.IsDevelopment())
@@ -39,13 +42,14 @@ builder.Services.AddControllers()
 // ===== CORS =====
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAllReactApp",
+    options.AddPolicy("AllowReactApp",
         policy =>
         {
-            policy.WithOrigins("http://localhost:5173")
+            policy.WithOrigins("http://localhost:5173", "http://localhost:5174", "http://localhost:3000")
                 .AllowAnyMethod()
-                .AllowAnyHeader();
-    });
+                .AllowAnyHeader()
+                .AllowCredentials();
+        });
 });
 
 // ===== JWT Authentication =====
@@ -176,6 +180,24 @@ if (app.Environment.IsDevelopment())
         c.SwaggerEndpoint("/swagger/v1/swagger.json", "Restaurant API V1");
         c.RoutePrefix = string.Empty;
     });
+
+    using var scope = app.Services.CreateScope();
+    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var existingSchema = await dbContext.Database.SqlQueryRaw<bool>(
+        "SELECT to_regclass('public.\"Categories\"') IS NOT NULL AS \"Value\"").SingleAsync();
+
+    if (!existingSchema)
+    {
+        await dbContext.Database.MigrateAsync();
+    }
+    else
+    {
+        // Legacy development databases were created with EnsureCreated and have no migration history.
+        // Keep their data and add only the columns required by the current model.
+        await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"RefreshTokenHash\" character varying(128)");
+        await dbContext.Database.ExecuteSqlRawAsync("ALTER TABLE \"Users\" ADD COLUMN IF NOT EXISTS \"RefreshTokenExpiry\" timestamp without time zone");
+        await dbContext.Database.ExecuteSqlRawAsync("CREATE UNIQUE INDEX IF NOT EXISTS \"IX_Users_RefreshTokenHash\" ON \"Users\" (\"RefreshTokenHash\") WHERE \"RefreshTokenHash\" IS NOT NULL");
+    }
 }
 
 app.UseHttpsRedirection();

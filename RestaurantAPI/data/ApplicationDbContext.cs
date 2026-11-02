@@ -84,6 +84,10 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<User>()
             .HasIndex(u => u.PasswordResetToken);
 
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.RefreshTokenHash)
+            .IsUnique();
+
         // Booking Indexes
         modelBuilder.Entity<Booking>()
             .HasIndex(b => b.BookingCode)
@@ -425,14 +429,14 @@ public class ApplicationDbContext : DbContext
         // SEED DATA
         // ============================================
 
-        // Seed default admin user
+        // Seed default admin and staff users
         modelBuilder.Entity<User>().HasData(
             new User
             {
                 Id = 1,
                 FullName = "System Administrator",
                 Email = "admin@restaurant.com",
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@123"),
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin@123456"),
                 Phone = "0123456789",
                 Role = UserRole.Admin,
                 IsActive = true,
@@ -442,10 +446,40 @@ public class ApplicationDbContext : DbContext
                 PasswordResetExpiry = null,
                 CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
                 LastLoginAt = null
+            },
+            new User
+            {
+                Id = 2,
+                FullName = "Restaurant Staff",
+                Email = "staff@restaurant.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Staff@123456"),
+                Phone = "0987654321",
+                Role = UserRole.Staff,
+                IsActive = true,
+                IsEmailVerified = true,
+                EmailVerificationToken = null,
+                PasswordResetToken = null,
+                PasswordResetExpiry = null,
+                CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                LastLoginAt = null
+            },
+            new User
+            {
+                Id = 3,
+                FullName = "Demo Customer",
+                Email = "customer@restaurant.com",
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword("Customer@123456"),
+                Phone = "0900000000",
+                Role = UserRole.Customer,
+                IsActive = true,
+                IsEmailVerified = true,
+                EmailVerificationToken = null,
+                PasswordResetToken = null,
+                PasswordResetExpiry = null,
+                CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+                LastLoginAt = null
             }
         );
-            // "email": "staff@restaurant.com",
-            // "password": "Staff@123"
 
         // Seed default settings
         modelBuilder.Entity<RestaurantSetting>().HasData(
@@ -583,6 +617,29 @@ public class ApplicationDbContext : DbContext
                 IsActive = true,
                 CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc)
             }
+        );
+
+        // Seed Tables
+        modelBuilder.Entity<Table>().HasData(
+            new Table { Id = 1, TableNumber = "Bàn 01", ZoneId = 1, TableTypeId = 1, Capacity = 4, Status = TableStatus.Available, IsActive = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new Table { Id = 2, TableNumber = "Bàn 02", ZoneId = 1, TableTypeId = 1, Capacity = 4, Status = TableStatus.Available, IsActive = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new Table { Id = 3, TableNumber = "Bàn 03", ZoneId = 1, TableTypeId = 1, Capacity = 2, Status = TableStatus.Available, IsActive = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new Table { Id = 4, TableNumber = "VIP 01", ZoneId = 2, TableTypeId = 2, Capacity = 8, Status = TableStatus.Available, IsActive = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new Table { Id = 5, TableNumber = "VIP 02", ZoneId = 2, TableTypeId = 2, Capacity = 6, Status = TableStatus.Available, IsActive = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new Table { Id = 6, TableNumber = "Rooftop 01", ZoneId = 3, TableTypeId = 3, Capacity = 4, Status = TableStatus.Available, IsActive = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new Table { Id = 7, TableNumber = "Rooftop 02", ZoneId = 3, TableTypeId = 3, Capacity = 4, Status = TableStatus.Available, IsActive = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) }
+        );
+
+        // Seed Menu Items
+        modelBuilder.Entity<MenuItem>().HasData(
+            new MenuItem { Id = 1, CategoryId = 1, Name = "Salad Hoàng Đế (Caesar)", Description = "Xà lách Romaine tươi giòn, sốt Caesar, thịt xông khói & phô mai Parmesan", Price = 89000, IsAvailable = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new MenuItem { Id = 2, CategoryId = 1, Name = "Súp Bào Ngư Nấm Đông Cô", Description = "Súp dinh dưỡng thượng hạng nấu từ nấm đông cô tươi và nước hầm gà", Price = 129000, IsAvailable = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new MenuItem { Id = 3, CategoryId = 2, Name = "Bò Wagyu Bít Tết Sốt Tiêu Đen", Description = "Thăn bò Wagyu nướng mềm mọng nước dùng kèm sốt tiêu đen hảo hạng", Price = 380000, IsAvailable = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new MenuItem { Id = 4, CategoryId = 2, Name = "Cá Hồi Nướng Sốt Chanh Dây", Description = "Phi lê cá hồi Na Uy áp chảo sốt chanh leo chua ngọt, măng tây nướng", Price = 265000, IsAvailable = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new MenuItem { Id = 5, CategoryId = 2, Name = "Mì Ý Tôm Hùm Sốt Kem Truffle", Description = "Mì Ý tươi sợi dẹt sốt kem nấm Truffle đen thơm béo ngậy kèm đuôi tôm hùm", Price = 320000, IsAvailable = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new MenuItem { Id = 6, CategoryId = 3, Name = "Trà Hoa Cúc Mật Ong", Description = "Trà thảo mộc hoa cúc thanh mát dịu ngọt", Price = 45000, IsAvailable = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new MenuItem { Id = 7, CategoryId = 3, Name = "Nước Ép Dưa Hấu Bạc Hà", Description = "Nước ép nguyên chất dưa hấu tươi mát lạnh", Price = 50000, IsAvailable = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new MenuItem { Id = 8, CategoryId = 4, Name = "Bánh Tiramisu Truyền Thống", Description = "Bánh Tiramisu vị cà phê phô mai Mascarpone béo mịn", Price = 65000, IsAvailable = true, CreatedAt = new DateTime(2024, 1, 1, 0, 0, 0, DateTimeKind.Utc) }
         );
     }
 }

@@ -20,20 +20,22 @@ public class ReportService : IReportService
     {
         var payments = await _context.Payments
             .Include(p => p.Order)
-            .Where(p => p.Status == PaymentStatusEnum.Success && p.PaidAt >= fromDate && p.PaidAt <= toDate)
+            .Where(p => p.Status == PaymentStatusEnum.Success && p.PaidAt >= fromDate && p.PaidAt < toDate.Date.AddDays(1))
             .ToListAsync();
 
-        var totalRevenue = payments.Sum(p => p.Amount);
-        var onlineRevenue = payments.Where(p => p.PaymentMethod == PaymentMethod.VNPay || p.PaymentMethod == PaymentMethod.MoMo).Sum(p => p.Amount);
-        var offlineRevenue = payments.Where(p => p.PaymentMethod == PaymentMethod.Cash || p.PaymentMethod == PaymentMethod.BankTransfer).Sum(p => p.Amount);
-        var totalOrders = payments.Where(p => p.OrderId.HasValue).Select(p => p.OrderId).Distinct().Count();
+        var orderPayments = payments.Where(p => p.OrderId.HasValue).ToList();
+        var depositPayments = payments.Where(p => p.PaymentType == PaymentType.Deposit).ToList();
+        var totalRevenue = orderPayments.Sum(p => p.Amount);
+        var onlineRevenue = orderPayments.Where(p => p.PaymentMethod == PaymentMethod.VNPay || p.PaymentMethod == PaymentMethod.MoMo).Sum(p => p.Amount);
+        var offlineRevenue = orderPayments.Where(p => p.PaymentMethod == PaymentMethod.Cash || p.PaymentMethod == PaymentMethod.BankTransfer).Sum(p => p.Amount);
+        var totalOrders = orderPayments.Select(p => p.OrderId).Distinct().Count();
         var averageOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
         // Group by period
         var chartData = new List<RevenueChartDataDto>();
         if (groupBy == "day")
         {
-            chartData = payments
+            chartData = orderPayments
                 .GroupBy(p => p.PaidAt!.Value.Date)
                 .Select(g => new RevenueChartDataDto
                 {
@@ -47,12 +49,12 @@ public class ReportService : IReportService
         }
         else if (groupBy == "week")
         {
-            chartData = payments
+            chartData = orderPayments
                 .GroupBy(p => GetWeekOfYear(p.PaidAt!.Value))
                 .Select(g => new RevenueChartDataDto
                 {
                     Label = $"Tuần {g.Key}",
-                    Date = payments.Where(p => GetWeekOfYear(p.PaidAt!.Value) == g.Key).Min(p => p.PaidAt!.Value).Date,
+                    Date = orderPayments.Where(p => GetWeekOfYear(p.PaidAt!.Value) == g.Key).Min(p => p.PaidAt!.Value).Date,
                     Revenue = g.Sum(p => p.Amount),
                     OrderCount = g.Where(p => p.OrderId.HasValue).Select(p => p.OrderId).Distinct().Count()
                 })
@@ -61,7 +63,7 @@ public class ReportService : IReportService
         }
         else if (groupBy == "month")
         {
-            chartData = payments
+            chartData = orderPayments
                 .GroupBy(p => new { p.PaidAt!.Value.Year, p.PaidAt.Value.Month })
                 .Select(g => new RevenueChartDataDto
                 {
@@ -74,7 +76,7 @@ public class ReportService : IReportService
                 .ToList();
         }
 
-        var revenueByMethod = payments
+        var revenueByMethod = orderPayments
             .GroupBy(p => p.PaymentMethod.ToString())
             .ToDictionary(g => g.Key, g => g.Sum(p => p.Amount));
 
@@ -83,7 +85,7 @@ public class ReportService : IReportService
             FromDate = fromDate,
             ToDate = toDate,
             TotalRevenue = totalRevenue,
-            OnlineDepositRevenue = onlineRevenue,
+            OnlineDepositRevenue = onlineRevenue + depositPayments.Where(p => p.PaymentMethod == PaymentMethod.VNPay || p.PaymentMethod == PaymentMethod.MoMo).Sum(p => p.Amount),
             OfflinePaymentRevenue = offlineRevenue,
             AverageOrderValue = averageOrderValue,
             TotalOrders = totalOrders,
@@ -196,9 +198,7 @@ public class ReportService : IReportService
             .Where(b => b.Status == BookingStatus.Completed || b.Status == BookingStatus.CheckedIn)
             .ToListAsync();
 
-        // Giả sử mỗi booking chiếm 2 giờ
-        var bookingDuration = 2;
-        var totalBookedHours = bookings.Count * bookingDuration;
+        var totalBookedHours = bookings.Sum(b => b.ServiceDurationMinutes) / 60m;
 
         var occupancyRate = totalAvailableHours > 0 ? (decimal)totalBookedHours / totalAvailableHours * 100 : 0;
 
@@ -206,9 +206,10 @@ public class ReportService : IReportService
             .GroupBy(t => new { t.ZoneId, t.Zone?.Name })
             .Select(g =>
             {
-                var zoneBookings = bookings.Count(b => tables.Any(t => t.Id == b.TableId && t.ZoneId == g.Key.ZoneId));
                 var zoneAvailableHours = g.Count() * totalDays * hoursPerDay;
-                var zoneBookedHours = zoneBookings * bookingDuration;
+                var zoneBookedHours = bookings
+                    .Where(b => tables.Any(t => t.Id == b.TableId && t.ZoneId == g.Key.ZoneId))
+                    .Sum(b => b.ServiceDurationMinutes) / 60m;
 
                 return new OccupancyByZoneDto
                 {

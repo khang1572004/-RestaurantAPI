@@ -1,11 +1,15 @@
 using Microsoft.EntityFrameworkCore;
 using RestaurantAPI.DTOs.Payment;
 using RestaurantAPI.Services.Interfaces;
+using System.Runtime.InteropServices;
 
 namespace RestaurantAPI.Services.Implementations;
 
 public class PaymentService : IPaymentService
 {
+    private static readonly TimeZoneInfo VietnamTimeZone = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+        ? TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+        : TimeZoneInfo.FindSystemTimeZoneById("Asia/Ho_Chi_Minh");
     private readonly ApplicationDbContext _context;
     private readonly IVNPayService _vnpayService;
     private readonly IMoMoService _momoService;
@@ -31,6 +35,7 @@ public class PaymentService : IPaymentService
 
     public async Task<CreatePaymentResponse> CreateDepositPaymentAsync(
         CreateDepositPaymentDto dto,
+        int customerId,
         string ipAddress)
     {
         var strategy = _context.Database.CreateExecutionStrategy();
@@ -69,6 +74,12 @@ public class PaymentService : IPaymentService
                         Success = false,
                         Message = "Không tìm thấy booking"
                     };
+                }
+
+                if (booking.CustomerId != customerId)
+                {
+                    _logger.LogWarning("Customer {CustomerId} attempted payment for booking {BookingId} owned by another customer", customerId, dto.BookingId);
+                    return new CreatePaymentResponse { Success = false, Message = "Bạn không có quyền thanh toán booking này" };
                 }
 
                 // ✅ FIX 1: KHÔNG CHO PHÉP THANH TOÁN WALK-IN (ĐÃ CHECK-IN)
@@ -127,11 +138,12 @@ public class PaymentService : IPaymentService
                 // ✅ FIX 4: CHECK BOOKING DATE - CHỈ CHO PHÉP THANH TOÁN CHO BOOKING TƯƠNG LAI
                 var bookingDateTime = booking.BookingDate.Date.Add(booking.BookingTime);
                 
-                if (bookingDateTime < DateTime.UtcNow)
+                var currentVietnamTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, VietnamTimeZone);
+                if (bookingDateTime < currentVietnamTime)
                 {
                     _logger.LogWarning(
                         "Attempted to pay for past booking {BookingId}. BookingTime: {BookingTime}, Now: {Now}",
-                        dto.BookingId, bookingDateTime, DateTime.UtcNow);
+                        dto.BookingId, bookingDateTime, currentVietnamTime);
                     
                     return new CreatePaymentResponse
                     {
@@ -141,8 +153,8 @@ public class PaymentService : IPaymentService
                 }
 
                 // ✅ FIX 5: CHỈ CHO PHÉP THANH TOÁN CHO BOOKING PENDING/CONFIRMED
-                if (booking.Status != BookingStatus.Pending && 
-                    booking.Status != BookingStatus.Confirmed)
+                if (booking.Status != BookingStatus.Pending &&
+                    booking.Status != BookingStatus.AwaitingDeposit)
                 {
                     _logger.LogWarning(
                         "Attempted to create payment for booking {BookingId} with invalid status: {Status}",
@@ -335,6 +347,12 @@ public class PaymentService : IPaymentService
                     return (true, "Giao dịch đã được xử lý trước đó", existingDto);
                 }
 
+                if (payment.PaymentType != PaymentType.Deposit ||
+                    payment.Status != PaymentStatusEnum.Pending)
+                {
+                    return (false, "Payment không ở trạng thái cọc đang chờ xử lý", null);
+                }
+
                 if (payment.Amount != amount)
                 {
                     _logger.LogWarning(
@@ -353,11 +371,12 @@ public class PaymentService : IPaymentService
                 // ✅ FIX 6: CẬP NHẬT BOOKING STATUS ĐÚNG LOGIC
                 if (payment.Booking != null)
                 {
-                    payment.Booking.PaymentStatus = PaymentStatus.Paid;
+                    payment.Booking.PaymentStatus = PaymentStatus.Partial;
                     
                     // ✅ CHỈ CẬP NHẬT STATUS NẾU ĐANG Ở PENDING
                     // KHÔNG ĐỔI STATUS NẾU ĐÃ CheckedIn/Completed/etc
-                    if (payment.Booking.Status == BookingStatus.Pending)
+                    if (payment.Booking.Status == BookingStatus.Pending ||
+                        payment.Booking.Status == BookingStatus.AwaitingDeposit)
                     {
                         payment.Booking.Status = BookingStatus.Confirmed;
                         _logger.LogInformation(
@@ -477,6 +496,12 @@ public class PaymentService : IPaymentService
                     return (false, "Không tìm thấy payment", null);
                 }
 
+                if (payment.PaymentType != PaymentType.Deposit ||
+                    payment.Status != PaymentStatusEnum.Pending)
+                {
+                    return (false, "Payment không ở trạng thái cọc đang chờ xử lý", null);
+                }
+
                 // Idempotency check
                 if (payment.Status == PaymentStatusEnum.Success)
                 {
@@ -532,7 +557,7 @@ public class PaymentService : IPaymentService
                 // ✅ FIX 7: CẬP NHẬT BOOKING STATUS ĐÚNG LOGIC (GIỐNG VNPAY)
                 if (payment.Booking != null)
                 {
-                    payment.Booking.PaymentStatus = PaymentStatus.Paid;
+                    payment.Booking.PaymentStatus = PaymentStatus.Partial;
                     
                     // ✅ CHỈ CẬP NHẬT STATUS NẾU ĐANG Ở PENDING
                     if (payment.Booking.Status == BookingStatus.Pending)

@@ -4,7 +4,7 @@ namespace RestaurantAPI.Services.Interfaces;
 
 public interface IPaymentService
 {
-    Task<CreatePaymentResponse> CreateDepositPaymentAsync(CreateDepositPaymentDto dto, string ipAddress);
+    Task<CreatePaymentResponse> CreateDepositPaymentAsync(CreateDepositPaymentDto dto, int customerId, string ipAddress);
     Task<(bool Success, string Message, PaymentDto? Payment)> ProcessVNPayCallbackAsync(IQueryCollection queryParams);
     Task<(bool Success, string Message, PaymentDto? Payment)> ProcessMoMoCallbackAsync(IQueryCollection queryParams);
     Task<List<PaymentDto>> GetPaymentsByBookingIdAsync(int bookingId);

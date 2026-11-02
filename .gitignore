@@ -1,0 +1,30 @@
+# .NET build output
+RestaurantAPI/bin/
+RestaurantAPI/obj/
+
+# Frontend dependencies/build output
+restaurant-admin-ui/node_modules/
+restaurant-admin-ui/dist/
+
+# Local screenshots and browser artifacts
+screenshots/
+*-snapshot.txt
+frontend-*.txt
+login*.txt
+book*.txt
+momo-*.txt
+payment-result-snapshot.txt
+
+# Local secrets and tooling state
+.vs/
+*.user
+*.suo
+.env
+.env.*
+!.env.example
+
+# Local Kilo/editor state
+.kilo/
+.kilocode/
+.tools/
+AGENTS.md

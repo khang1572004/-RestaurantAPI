@@ -61,6 +61,15 @@ public class OrderService : IOrderService
 
             if (table.Status != TableStatus.Occupied)
                 throw new InvalidOperationException("Bàn chưa được sử dụng");
+
+            booking = await _context.Bookings
+                .Include(b => b.Table)
+                .Where(b => b.TableId == table.Id && b.Status == BookingStatus.CheckedIn)
+                .OrderByDescending(b => b.CheckInTime)
+                .FirstOrDefaultAsync();
+
+            if (booking != null && await _context.Orders.AnyAsync(o => o.BookingId == booking.Id && o.Status != OrderStatus.Cancelled))
+                throw new InvalidOperationException("Booking này đã có hóa đơn đang mở");
         }
 
         // Tạo order mới
@@ -79,16 +88,11 @@ public class OrderService : IOrderService
         };
 
         // Nếu có booking và đã cọc, lấy deposit amount
-        if (booking != null && booking.PaymentStatus == PaymentStatus.Partial)
+        if (booking != null)
         {
-            var depositPayment = await _context.Payments
+            order.DepositAmount = await _context.Payments
                 .Where(p => p.BookingId == booking.Id && p.PaymentType == PaymentType.Deposit && p.Status == PaymentStatusEnum.Success)
-                .FirstOrDefaultAsync();
-
-            if (depositPayment != null)
-            {
-                order.DepositAmount = depositPayment.Amount;
-            }
+                .SumAsync(p => (decimal?)p.Amount) ?? 0m;
         }
 
         _context.Orders.Add(order);
@@ -205,6 +209,7 @@ public class OrderService : IOrderService
             throw new ArgumentException("Món ăn không có trong order");
 
         _context.OrderItems.Remove(orderItem);
+        order.OrderItems.Remove(orderItem);
 
         await RecalculateOrderTotalsAsync(order);
         await _context.SaveChangesAsync();
@@ -298,7 +303,16 @@ public class OrderService : IOrderService
     // CN041: Thanh toán order
     public async Task<OrderPaymentResponseDto> ProcessPaymentAsync(int orderId, ProcessOrderPaymentDto dto, int staffId)
     {
+        var strategy = _context.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(() => ProcessPaymentInTransactionAsync(orderId, dto, staffId));
+    }
+
+    private async Task<OrderPaymentResponseDto> ProcessPaymentInTransactionAsync(int orderId, ProcessOrderPaymentDto dto, int staffId)
+    {
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
         var order = await _context.Orders
+            .FromSqlInterpolated($"SELECT * FROM \"Orders\" WHERE \"Id\" = {orderId} FOR UPDATE")
             .Include(o => o.OrderItems)
                 .ThenInclude(oi => oi.MenuItem)
             .Include(o => o.Voucher)
@@ -315,6 +329,21 @@ public class OrderService : IOrderService
         if (order.OrderItems.Count == 0)
             throw new InvalidOperationException("Order chưa có món ăn nào");
 
+        if (order.Booking == null)
+        {
+            order.Booking = await _context.Bookings
+                .Where(b => b.TableId == order.TableId && b.Status == BookingStatus.CheckedIn)
+                .OrderByDescending(b => b.CheckInTime)
+                .FirstOrDefaultAsync();
+            if (order.Booking != null)
+            {
+                order.BookingId = order.Booking.Id;
+                order.DepositAmount = await _context.Payments
+                    .Where(p => p.BookingId == order.Booking.Id && p.PaymentType == PaymentType.Deposit && p.Status == PaymentStatusEnum.Success)
+                    .SumAsync(p => (decimal?)p.Amount) ?? order.DepositAmount;
+            }
+        }
+
         // Recalculate để đảm bảo đúng
         await RecalculateOrderTotalsAsync(order);
 
@@ -325,7 +354,7 @@ public class OrderService : IOrderService
             BookingId = order.BookingId,
             Amount = order.FinalAmount,
             PaymentMethod = dto.PaymentMethod,
-            PaymentType = PaymentType.Full,
+            PaymentType = order.DepositAmount > 0 ? PaymentType.Remaining : PaymentType.Full,
             Status = PaymentStatusEnum.Success,
             PaidAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow
@@ -341,10 +370,15 @@ public class OrderService : IOrderService
         // Record voucher usage
         if (order.VoucherId.HasValue)
         {
+            if (order.Booking?.CustomerId is not int customerId)
+            {
+                throw new InvalidOperationException("Voucher yêu cầu order gắn với khách hàng");
+            }
+
             var voucherUsage = new VoucherUsage
             {
                 VoucherId = order.VoucherId.Value,
-                CustomerId = order.Booking?.CustomerId ?? 0,
+                CustomerId = customerId,
                 OrderId = orderId,
                 BookingId = order.BookingId,
                 UsedAt = DateTime.UtcNow
@@ -370,6 +404,7 @@ public class OrderService : IOrderService
         order.Table.Status = TableStatus.Available;
 
         await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
 
         _logger.LogInformation("Processed payment for order {OrderId}, amount {Amount}", orderId, order.FinalAmount);
 
@@ -505,6 +540,20 @@ public class OrderService : IOrderService
         _logger.LogInformation("Cancelled order {OrderId} by staff {StaffId}", orderId, staffId);
 
         return true;
+    }
+
+    public async Task<List<OrderDto>> GetOrderHistoryAsync(int? tableId, int? bookingId)
+    {
+        var orders = await _context.Orders
+            .Include(o => o.OrderItems).ThenInclude(i => i.MenuItem)
+            .Include(o => o.Booking)
+            .Include(o => o.Table)
+            .Where(o => (!tableId.HasValue || o.TableId == tableId) && (!bookingId.HasValue || o.BookingId == bookingId))
+            .OrderByDescending(o => o.CreatedAt)
+            .ToListAsync();
+        var result = new List<OrderDto>();
+        foreach (var order in orders) result.Add(await MapToOrderDto(order));
+        return result;
     }
 
     // Mapping helpers

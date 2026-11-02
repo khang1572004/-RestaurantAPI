@@ -19,6 +19,7 @@ public class BookingDto
     public string BookingCode { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string PaymentStatus { get; set; } = string.Empty;
+    public bool IsDepositPaid => PaymentStatus == nameof(global::PaymentStatus.Partial) || PaymentStatus == nameof(global::PaymentStatus.Paid);
     public int? VoucherId { get; set; }
     public string? VoucherCode { get; set; }
     public decimal DepositAmount { get; set; }

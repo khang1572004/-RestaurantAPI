@@ -40,6 +40,7 @@ public interface IBookingService
     Task<(List<BookingDto> Bookings, int TotalCount)> GetAllBookingsAsync(BookingFilterDto filter);
     Task<(bool Success, string Message)> ApproveBookingAsync(int bookingId);
     Task<(bool Success, string Message)> RejectBookingAsync(int bookingId, string reason);
+    Task<(bool Success, string Message)> CancelBookingByAdminAsync(int bookingId, string reason);
     Task<(bool Success, string Message)> DeleteBookingAsync(int bookingId);
     Task<(bool Success, string Message, BookingDto? Data)> UpdateBookingAsync(int bookingId, UpdateBookingDto dto);
 
